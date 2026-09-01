@@ -1,321 +1,251 @@
 # AI-MPC-Blender-home
 
-Minimal proof of concept for controlling a live Blender 5.2 session from Codex through the official Blender Lab MCP integration.
+POC pro ovládání živého Blenderu 5.2 pomocí OpenAI Codex přes **oficiální Blender Lab MCP**.
 
-> Status: **POC v0.1 core path verified, including restart persistence.** Codex can read the live Blender scene and execute Blender Python through the official Blender MCP. A multi-object chair was created and read back successfully. After restarting Blender, the MCP add-on remained registered, Auto Start restored the listener on `127.0.0.1:9876`, and Codex again read the live scene through MCP. The only remaining formal acceptance checks are the exact `MCP_Test_Sphere` create/move/read-back steps from the original DoD.
+## Stav
 
-## Architecture
+**POC v0.1 — core path PASS.**
+
+Prakticky ověřeno:
 
 ```text
-Codex
-  |
-  | MCP / stdio
-  v
+Codex CLI
+   |
+   | MCP / stdio
+   v
 Official Blender Lab MCP server
-  |
-  | local TCP (127.0.0.1:9876)
-  v
+   |
+   | TCP 127.0.0.1:9876
+   v
 Official Blender Lab MCP add-on
-  |
-  v
-Blender 5.2
-  |
-  v
+   |
+   v
+Blender 5.2.1 LTS
+   |
+   v
 bpy
 ```
 
-POC v0.1 deliberately excludes STEP/CAD import, Creo integration, rendering workflows, custom MCP servers, Docker, web UI, and custom LLM orchestration.
+Ověřené funkce:
 
-## Verified environment
+- Codex načte projektovou Blender MCP konfiguraci.
+- MCP server se inicializuje.
+- Codex čte živou Blender scénu přes `blender.get_objects_summary`.
+- Codex provádí write operace přes Blender MCP / `bpy`.
+- Po změně lze scénu znovu přečíst a výsledek ověřit.
+- Byl vytvořen a ověřen vícedílný model židle.
+- Blender MCP listener funguje i po restartu Blenderu.
+- Codex -> MCP -> Blender read test funguje i po restartu.
 
-- Windows 11
-- Blender 5.2.1 LTS
-- official Blender Lab MCP add-on 1.0.0
-- Codex CLI 0.152.0
-- `uvx 0.11.8`
-- Git
-- PowerShell
+## Dokumentace
 
-Useful checks:
+### [Kompletní HOWTO](docs/HOWTO.md)
 
-```powershell
-git --version
-uv --version
-uvx --version
-python --version
-codex --version
-```
+Reprodukovatelný postup od instalace až po restart test. Obsahuje také:
 
-## Blender side
+- architekturu,
+- Codex a `uvx` konfiguraci,
+- Blender Lab MCP instalaci,
+- port 9876,
+- MCP SDK compatibility pin,
+- auto-approval nástrojů,
+- perzistenci Blender Lab repository,
+- ověřený E2E postup.
 
-In Blender Preferences verify:
+### [Troubleshooting](docs/TROUBLESHOOTING.md)
 
-```text
-MCP
-Maintainer: Blender Lab
-Version: 1.0.0
-Host: localhost
-Port: 9876
-Auto Start: enabled
-```
+Konkrétní chyby a jejich ověřené řešení, mimo jiné:
 
-Keep the listener local only.
+- `codex is not recognized`,
+- IPv6 `::1` vs. `127.0.0.1`,
+- `No module named 'mcp.server.fastmcp'`,
+- `MCP startup interrupted`,
+- `Auth: Unsupported`,
+- opakované `Allow` prompty,
+- MCP zmizí po restartu, přestože soubory existují,
+- chybějící `lab_blender_org` v Blender Preferences.
 
-Connectivity check:
+### [Ověřené testovací prompty](docs/TEST_PROMPTS.md)
 
-```powershell
-Test-NetConnection 127.0.0.1 -Port 9876
-Get-NetTCPConnection -LocalPort 9876 -State Listen -ErrorAction SilentlyContinue
-```
+Obsahuje:
 
-Verified on the POC host, including after Blender restart:
+- read-only scene test,
+- delete + verify,
+- create/move/read-back test,
+- prompt pro modelování židle,
+- kompletní one-shot `clear -> model -> verify -> save` workflow.
 
-```text
-RemoteAddress    : 127.0.0.1
-RemotePort       : 9876
-TcpTestSucceeded : True
-```
-
-### Blender Lab repository persistence
-
-The MCP extension is installed from the Blender Lab extension repository. During restart testing, the extension files remained on disk but the `lab_blender_org` repository was initially missing from Blender preferences, so MCP did not appear in Add-ons after restart.
-
-The repository registration was restored and saved in Blender Preferences. Verified CLI state:
+## Ověřené prostředí
 
 ```text
-lab_blender_org:
-    name: "lab.blender.org"
-    directory: "...\\extensions\\lab_blender_org"
-    url: "https://lab.blender.org/"
+Windows 11
+Blender 5.2.1 LTS
+Blender Lab MCP add-on 1.0.0
+Codex CLI 0.152.0
+uvx 0.11.8
 ```
 
-After saving Preferences and restarting Blender, the MCP add-on remained visible and enabled, and Auto Start restored the server listener.
+## Důležitá kompatibilita
 
-## Codex MCP configuration
-
-Project configuration is stored in `.codex/config.toml`.
-
-The official Blender Lab MCP server is loaded from:
-
-```text
-git+https://projects.blender.org/lab/blender_mcp.git@v1.0.0#subdirectory=mcp
-```
-
-### MCP Python SDK compatibility pin
-
-Blender MCP 1.0.0 uses the MCP Python SDK v1 `FastMCP` API. Without a pin, current dependency resolution installed MCP SDK 2.x and produced:
+Blender MCP 1.0.0 používá MCP Python SDK v1 API `FastMCP`. Bez omezení verze se během POC nainstalovalo MCP SDK 2.x a server spadl na:
 
 ```text
 ModuleNotFoundError: No module named 'mcp.server.fastmcp'
 ```
 
-The working POC configuration therefore pins:
+Proto projektová konfigurace explicitně používá:
 
 ```text
 mcp==1.27.2
 ```
 
-Equivalent command:
+Viz `.codex/config.toml`.
 
-```powershell
-uvx --with "mcp==1.27.2" `
-  --from "git+https://projects.blender.org/lab/blender_mcp.git@v1.0.0#subdirectory=mcp" `
-  blender-mcp
-```
+## Projektová Codex konfigurace
 
-with:
+Aktuální konfigurace je v:
 
 ```text
-BLENDER_MCP_HOST=127.0.0.1
-BLENDER_MCP_PORT=9876
+.codex/config.toml
 ```
 
-### Tool approvals
+Používá:
 
-For this isolated local POC, Blender MCP tools are auto-approved only for the `blender` MCP server:
+- oficiální Blender Lab MCP Git repository,
+- `127.0.0.1:9876`,
+- `mcp==1.27.2`,
+- auto-approval pouze pro Blender MCP server.
 
-```toml
-default_tools_approval_mode = "approve"
-```
-
-This avoids repeated prompts for `execute_blender_code`. Do not generalize this to untrusted or remote MCP servers.
-
-## MCP discovery
+Kontrola:
 
 ```powershell
+cd C:\git\AI-MPC-Blender-home
 codex mcp list
 ```
 
-Verified result contains:
+Očekávaný stav obsahuje:
 
 ```text
 blender ... enabled
 ```
 
-`Auth: Unsupported` is expected for this local stdio MCP server and is not an error.
+`Auth: Unsupported` je u tohoto lokálního stdio MCP serveru očekávané.
 
-## Verified end-to-end tests
+## Rychlý start
 
-### Test A — live scene read — PASS
+### 1. Spusť Blender
 
-Prompt:
+V `Edit -> Preferences -> Add-ons -> MCP` ověř:
+
+```text
+Maintainer: Blender Lab
+Version: 1.0.0
+Host: localhost
+Port: 9876
+Auto Start: enabled
+Server is running
+```
+
+### 2. Ověř listener
+
+```powershell
+Test-NetConnection 127.0.0.1 -Port 9876
+```
+
+PASS:
+
+```text
+TcpTestSucceeded : True
+```
+
+### 3. Spusť Codex
+
+```powershell
+cd C:\git\AI-MPC-Blender-home
+git pull
+codex
+```
+
+### 4. Smoke test
 
 ```text
 Using the Blender MCP tools, inspect the currently open Blender scene
 and list all objects. Do not modify anything.
 ```
 
-Codex called:
+PASS znamená skutečný Blender MCP call, například:
 
 ```text
-blender.get_objects_summary({})
+Called blender.get_objects_summary({})
+status: ok
 ```
 
-and correctly read:
+## Důležitá zkušenost s restartem Blenderu
+
+Během POC se stalo, že MCP soubory fyzicky zůstaly v:
 
 ```text
-Camera
-Cube
-Light
+%APPDATA%\Blender Foundation\Blender\5.2\extensions\lab_blender_org\mcp
 ```
 
-No scene changes were made.
+ale po restartu MCP zmizel z Add-ons. Příčinou bylo, že Blender Lab repository nebyla trvale uložená v Preferences.
 
-### Additional write-path validation — chair — PASS
-
-Codex was asked to create a simple chair from multiple mesh primitives and then re-read the live scene.
-
-Verified result:
-
-- eight `Chair_*` mesh objects created
-- seat approximately `0.45 x 0.45 x 0.05 m`
-- four legs approximately `0.05 x 0.05 x 0.40 m`
-- rear supports reach approximately `Z = 0.90 m`
-- backrest approximately `0.35 x 0.04 x 0.08 m`, centered around `Z = 0.78 m`
-- Camera and Light preserved
-- live scene re-read after creation
-
-This validates the write path:
-
-```text
-Codex -> Blender MCP -> execute_blender_code -> bpy -> live Blender scene -> MCP read-back
-```
-
-### Restart persistence and read-back — PASS
-
-After restarting Blender:
-
-- MCP remained visible and enabled in Add-ons
-- Blender Lab repository remained registered
-- Auto Start restored the MCP listener
-- `Test-NetConnection 127.0.0.1 -Port 9876` returned `TcpTestSucceeded : True`
-- a fresh Codex session again called `blender.get_objects_summary({})`
-- Codex received `status: ok` and correctly read `Camera`, `Cube`, and `Light`
-
-This verifies restart persistence for the complete read-only path:
-
-```text
-Blender restart -> MCP Auto Start -> Codex -> MCP -> live Blender read
-```
-
-## Required v0.1 acceptance sequence
-
-The exact original sphere acceptance sequence remains optional/formal cleanup; the core read/write path is already verified with the chair test and restart read-back.
-
-### Test B — create sphere
-
-```text
-Using Blender MCP, create a UV sphere named MCP_Test_Sphere
-at location X=3, Y=0, Z=0.
-```
-
-### Test C — verify sphere
-
-```text
-Inspect the Blender scene and verify that MCP_Test_Sphere exists
-at X=3, Y=0, Z=0.
-```
-
-### Test D — move and verify
-
-```text
-Move MCP_Test_Sphere to X=5, Y=1, Z=0 and verify its final location.
-```
-
-PASS requires both visible Blender changes and MCP read-back of the final state.
-
-## Troubleshooting
-
-### Blender listener
+Kontrola:
 
 ```powershell
-Test-NetConnection 127.0.0.1 -Port 9876
-Get-NetTCPConnection -LocalPort 9876 -ErrorAction SilentlyContinue
-```
+$blender = Get-ChildItem "C:\Program Files\Blender Foundation" -Filter blender.exe -Recurse |
+  Select-Object -First 1 -ExpandProperty FullName
 
-### Blender Lab repository missing after restart
-
-Check:
-
-```powershell
 & $blender --command extension repo-list
 ```
 
-The output must include `lab_blender_org`. If MCP files exist under `...\\extensions\\lab_blender_org\\mcp` but the repository is missing, restore the Blender Lab repository and explicitly save Blender Preferences before restarting.
-
-### Codex / uvx
-
-```powershell
-codex --version
-uvx --version
-codex mcp list
-```
-
-### MCP SDK v2 incompatibility
-
-If you see:
+Správný stav obsahuje:
 
 ```text
-No module named 'mcp.server.fastmcp'
+lab_blender_org:
+    name: "lab.blender.org"
 ```
 
-ensure the Blender server runs with:
+Po explicitním `Save Preferences` registrace repository přežila restart a MCP se znovu automaticky spustil.
 
-```text
-mcp==1.27.2
+Podrobnosti jsou v [Troubleshooting](docs/TROUBLESHOOTING.md).
+
+## Bezpečnost tool approval
+
+Projekt používá:
+
+```toml
+default_tools_approval_mode = "approve"
 ```
 
-### Port ownership
+jen pro lokální MCP server `blender`, aby nebylo nutné potvrzovat každý `execute_blender_code` call. Blender MCP může spouštět Python přes `bpy`, proto není vhodné toto nastavení bez rozmyslu používat pro nedůvěryhodné nebo vzdálené MCP servery.
 
-```powershell
-Get-NetTCPConnection -LocalPort 9876 -ErrorAction SilentlyContinue |
-    Select-Object LocalAddress,LocalPort,State,OwningProcess
-```
+## POC v0.1 — ověřené milníky
 
-Identify the process before terminating or changing anything.
+- [x] Repo bootstrap.
+- [x] Blender 5.2.1 + Blender Lab MCP 1.0.0.
+- [x] Listener `127.0.0.1:9876`.
+- [x] Codex CLI a `uvx`.
+- [x] Projektová `.codex/config.toml`.
+- [x] MCP SDK v1/v2 problém diagnostikován a reprodukovatelně opraven.
+- [x] Codex vidí `blender` MCP server jako enabled.
+- [x] Read-only live scene test.
+- [x] Write path přes `execute_blender_code` / `bpy`.
+- [x] Víceobjektový model židle + MCP read-back.
+- [x] Blender Lab repository persistence.
+- [x] MCP Auto Start po restartu.
+- [x] Codex -> MCP -> Blender read test po restartu.
 
-## Testing boundaries
+## Scope další etapy
 
-- **Unit tests**: only for repository-owned Python code. None is needed yet.
-- **MCP integration test**: Codex loads the MCP server and sees/calls its tools.
-- **True E2E test**: live Blender GUI + official add-on + Codex + visible scene change + MCP read-back.
+POC v0.1 záměrně neřeší:
 
-## POC v0.1 definition of done
+- STEP/CAD import,
+- Creo integraci,
+- vlastní MCP server,
+- automatické multi-view renderování,
+- analýzu materiálů/barev,
+- generování reportů,
+- širší orchestraci nebo web UI.
 
-- [x] Repository can be cloned.
-- [x] Required environment documented.
-- [x] Blender 5.2 has the official MCP add-on active.
-- [x] Blender listener reachable on `127.0.0.1:9876`.
-- [x] Codex CLI available (`0.152.0`).
-- [x] `uvx` available (`0.11.8`).
-- [x] Codex loads Blender MCP configuration.
-- [x] MCP SDK v1/v2 compatibility problem diagnosed and pinned.
-- [x] Codex initializes and calls Blender MCP tools.
-- [x] Codex reads the live Blender scene.
-- [x] Codex performs verified write operations in Blender (chair validation).
-- [x] Blender Lab repository persists after restart.
-- [x] Blender MCP add-on persists after restart.
-- [x] Blender MCP Auto Start restores the listener after restart.
-- [x] Codex reads the live Blender scene successfully after restart.
-- [ ] Optional formal check: create `MCP_Test_Sphere` at `(3, 0, 0)`.
-- [ ] Optional formal check: verify and move it to `(5, 1, 0)` with MCP read-back.
+Tyto body mohou navázat až na nyní ověřenou stabilní MCP komunikační vrstvu.
