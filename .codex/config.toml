@@ -1,6 +1,8 @@
 [mcp_servers.blender]
 command = "uvx"
 args = [
+  "--with",
+  "mcp==1.27.2",
   "--from",
   "git+https://projects.blender.org/lab/blender_mcp.git@v1.0.0#subdirectory=mcp",
   "blender-mcp",
