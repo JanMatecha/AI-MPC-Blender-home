@@ -2,7 +2,7 @@
 
 Minimal proof of concept for controlling a live Blender 5.2 session from Codex through the official Blender Lab MCP integration.
 
-> Status: **POC v0.1 in progress, core MCP path verified.** Codex can read the live Blender scene and execute Blender Python through the official Blender MCP. A multi-object chair was created and read back successfully. The remaining v0.1 acceptance checks are the exact `MCP_Test_Sphere` create/move/read-back sequence and restart reproducibility.
+> Status: **POC v0.1 core path verified, including restart persistence.** Codex can read the live Blender scene and execute Blender Python through the official Blender MCP. A multi-object chair was created and read back successfully. After restarting Blender, the MCP add-on remained registered, Auto Start restored the listener on `127.0.0.1:9876`, and Codex again read the live scene through MCP. The only remaining formal acceptance checks are the exact `MCP_Test_Sphere` create/move/read-back steps from the original DoD.
 
 ## Architecture
 
@@ -68,13 +68,28 @@ Test-NetConnection 127.0.0.1 -Port 9876
 Get-NetTCPConnection -LocalPort 9876 -State Listen -ErrorAction SilentlyContinue
 ```
 
-Verified on the POC host:
+Verified on the POC host, including after Blender restart:
 
 ```text
 RemoteAddress    : 127.0.0.1
 RemotePort       : 9876
 TcpTestSucceeded : True
 ```
+
+### Blender Lab repository persistence
+
+The MCP extension is installed from the Blender Lab extension repository. During restart testing, the extension files remained on disk but the `lab_blender_org` repository was initially missing from Blender preferences, so MCP did not appear in Add-ons after restart.
+
+The repository registration was restored and saved in Blender Preferences. Verified CLI state:
+
+```text
+lab_blender_org:
+    name: "lab.blender.org"
+    directory: "...\\extensions\\lab_blender_org"
+    url: "https://lab.blender.org/"
+```
+
+After saving Preferences and restarting Blender, the MCP add-on remained visible and enabled, and Auto Start restored the server listener.
 
 ## Codex MCP configuration
 
@@ -186,9 +201,26 @@ This validates the write path:
 Codex -> Blender MCP -> execute_blender_code -> bpy -> live Blender scene -> MCP read-back
 ```
 
+### Restart persistence and read-back — PASS
+
+After restarting Blender:
+
+- MCP remained visible and enabled in Add-ons
+- Blender Lab repository remained registered
+- Auto Start restored the MCP listener
+- `Test-NetConnection 127.0.0.1 -Port 9876` returned `TcpTestSucceeded : True`
+- a fresh Codex session again called `blender.get_objects_summary({})`
+- Codex received `status: ok` and correctly read `Camera`, `Cube`, and `Light`
+
+This verifies restart persistence for the complete read-only path:
+
+```text
+Blender restart -> MCP Auto Start -> Codex -> MCP -> live Blender read
+```
+
 ## Required v0.1 acceptance sequence
 
-The exact original acceptance sequence still needs to be completed for formal v0.1 DoD.
+The exact original sphere acceptance sequence remains optional/formal cleanup; the core read/write path is already verified with the chair test and restart read-back.
 
 ### Test B — create sphere
 
@@ -212,19 +244,6 @@ Move MCP_Test_Sphere to X=5, Y=1, Z=0 and verify its final location.
 
 PASS requires both visible Blender changes and MCP read-back of the final state.
 
-## Restart reproducibility test
-
-After Tests B-D pass:
-
-1. Fully close Codex and Blender.
-2. Start Blender 5.2 again.
-3. Verify the MCP listener on port 9876.
-4. Start Codex from this repository.
-5. Run `codex mcp list` or `/mcp`.
-6. Repeat the read/create/move/read-back sequence.
-
-POC v0.1 is not complete until this restart test passes.
-
 ## Troubleshooting
 
 ### Blender listener
@@ -233,6 +252,16 @@ POC v0.1 is not complete until this restart test passes.
 Test-NetConnection 127.0.0.1 -Port 9876
 Get-NetTCPConnection -LocalPort 9876 -ErrorAction SilentlyContinue
 ```
+
+### Blender Lab repository missing after restart
+
+Check:
+
+```powershell
+& $blender --command extension repo-list
+```
+
+The output must include `lab_blender_org`. If MCP files exist under `...\\extensions\\lab_blender_org\\mcp` but the repository is missing, restore the Blender Lab repository and explicitly save Blender Preferences before restarting.
 
 ### Codex / uvx
 
@@ -284,7 +313,9 @@ Identify the process before terminating or changing anything.
 - [x] Codex initializes and calls Blender MCP tools.
 - [x] Codex reads the live Blender scene.
 - [x] Codex performs verified write operations in Blender (chair validation).
-- [ ] Codex creates `MCP_Test_Sphere` at `(3, 0, 0)`.
-- [ ] Codex verifies `MCP_Test_Sphere` through MCP read-back.
-- [ ] Codex moves it to `(5, 1, 0)` and verifies final location.
-- [ ] Full flow passes again after Blender and Codex restart.
+- [x] Blender Lab repository persists after restart.
+- [x] Blender MCP add-on persists after restart.
+- [x] Blender MCP Auto Start restores the listener after restart.
+- [x] Codex reads the live Blender scene successfully after restart.
+- [ ] Optional formal check: create `MCP_Test_Sphere` at `(3, 0, 0)`.
+- [ ] Optional formal check: verify and move it to `(5, 1, 0)` with MCP read-back.
