@@ -2,7 +2,7 @@
 
 Minimal proof of concept for controlling a live Blender 5.2 session from Codex through the official Blender Lab MCP integration.
 
-> Status: **POC v0.1 in progress**. The official Blender Lab MCP add-on is installed and its local listener on `127.0.0.1:9876` has been verified. The next blocker is installing/enabling the Codex CLI on the Windows host and then running the first MCP discovery test.
+> Status: **POC v0.1 in progress**. The official Blender Lab MCP add-on is installed and its local listener on `127.0.0.1:9876` has been verified. Codex CLI `0.152.0` and `uvx 0.11.8` are available. The next step is to start the official Blender MCP stdio server directly and diagnose why Codex previously reported `MCP startup interrupted`.
 
 ## Target architecture
 
@@ -48,6 +48,13 @@ codex --version
 Get-Command uvx
 Get-Command codex
 Get-Command blender -ErrorAction SilentlyContinue
+```
+
+Verified on the POC host:
+
+```text
+codex-cli 0.152.0
+uvx 0.11.8 (0e961dd9a 2026-04-27 x86_64-pc-windows-msvc)
 ```
 
 ### Install Codex CLI on Windows
@@ -148,6 +155,16 @@ codex mcp --help
 
 Inside the Codex TUI, `/mcp` should show the `blender` server and its tools.
 
+Before diagnosing Codex integration, the official server can be started directly:
+
+```powershell
+$env:BLENDER_MCP_HOST="127.0.0.1"
+$env:BLENDER_MCP_PORT="9876"
+uvx --from "git+https://projects.blender.org/lab/blender_mcp.git@v1.0.0#subdirectory=mcp" blender-mcp
+```
+
+For a healthy stdio MCP server it is normal for this command to remain running and wait for MCP input. Stop it with `Ctrl+C` after the diagnostic.
+
 If project-scoped configuration is not being loaded, the equivalent user-level bootstrap command is:
 
 ```powershell
@@ -247,14 +264,15 @@ If `uv` was just installed, fully restart the terminal and Codex, then retry. Pr
 
 ### Blender MCP server cannot start in Codex
 
-Check:
+First isolate the server from Codex:
 
 ```powershell
-codex mcp list
-codex mcp --help
-uvx --version
-git --version
+$env:BLENDER_MCP_HOST="127.0.0.1"
+$env:BLENDER_MCP_PORT="9876"
+uvx --from "git+https://projects.blender.org/lab/blender_mcp.git@v1.0.0#subdirectory=mcp" blender-mcp
 ```
+
+If it exits with an exception, preserve the complete traceback before changing dependencies. If it remains running, stop it with `Ctrl+C` and continue with Codex MCP discovery.
 
 The first server start may need network access because `uvx` has to obtain the official MCP package from the Blender Git repository. Subsequent starts should use the uv cache.
 
@@ -324,7 +342,8 @@ There are three different test layers:
 - [x] Required environment is documented.
 - [x] Blender 5.2 has the official MCP add-on active.
 - [x] Blender MCP add-on listener is reachable locally on IPv4 port `9876`.
-- [ ] Codex CLI is installed and available in PowerShell.
+- [x] Codex CLI is installed and available in PowerShell (`0.152.0`).
+- [x] `uvx` is installed and available in PowerShell (`0.11.8`).
 - [ ] Codex starts/uses the official Blender MCP server.
 - [ ] MCP server initializes successfully.
 - [ ] Codex sees Blender MCP tools.
@@ -340,4 +359,6 @@ There are three different test layers:
 
 **Blender add-on/listener stage: PASS.** Official Blender Lab MCP 1.0.0 is enabled in Blender 5.2 with Auto Start and `127.0.0.1:9876` is reachable.
 
-**Codex CLI stage: FAIL / blocker.** PowerShell currently reports `codex` as an unknown command. Install the official Codex CLI, restart PowerShell, then continue with `codex --version` and `codex mcp list`.
+**Codex CLI / uvx stage: PASS.** `codex-cli 0.152.0` and `uvx 0.11.8` are available in a fresh PowerShell session.
+
+**Official Blender MCP stdio server stage: PENDING.** Run the direct `uvx --from ... blender-mcp` diagnostic and record whether the process stays running or exits with an error.
