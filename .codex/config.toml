@@ -5,7 +5,7 @@ args = [
   "git+https://projects.blender.org/lab/blender_mcp.git@v1.0.0#subdirectory=mcp",
   "blender-mcp",
 ]
-env = { BLENDER_MCP_HOST = "localhost", BLENDER_MCP_PORT = "9876" }
+env = { BLENDER_MCP_HOST = "127.0.0.1", BLENDER_MCP_PORT = "9876" }
 startup_timeout_sec = 120
 tool_timeout_sec = 60
 default_tools_approval_mode = "prompt"
