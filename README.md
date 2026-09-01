@@ -2,7 +2,7 @@
 
 Minimal proof of concept for controlling a live Blender 5.2 session from Codex through the official Blender Lab MCP integration.
 
-> Status: **POC v0.1 in progress**. The official Blender Lab MCP add-on is installed and its local listener on `127.0.0.1:9876` has been verified. Codex CLI `0.152.0` and `uvx 0.11.8` are available. The next step is to start the official Blender MCP stdio server directly and diagnose why Codex previously reported `MCP startup interrupted`.
+> Status: **POC v0.1 in progress**. Blender 5.2, the official Blender Lab MCP add-on 1.0.0, the local listener on `127.0.0.1:9876`, Codex CLI `0.152.0`, `uvx 0.11.8`, and Codex project-level MCP discovery are verified. The next step is the first live read-only `Codex -> MCP -> Blender` scene inspection.
 
 ## Target architecture
 
@@ -26,18 +26,19 @@ bpy
 
 The POC deliberately does **not** include STEP/CAD import, Creo integration, rendering workflows, custom MCP servers, a web UI, Docker, or a custom LLM orchestration layer.
 
-## 1. Prerequisites
+## 1. Verified environment
 
 Primary environment:
 
 - Windows 11
-- Blender 5.2 LTS
-- Codex CLI
+- Blender 5.2
+- official Blender Lab MCP add-on 1.0.0
+- Codex CLI 0.152.0
+- `uvx 0.11.8`
 - Git
-- `uv` / `uvx`
 - PowerShell
 
-Check the local environment from PowerShell:
+Useful checks:
 
 ```powershell
 git --version
@@ -47,7 +48,6 @@ python --version
 codex --version
 Get-Command uvx
 Get-Command codex
-Get-Command blender -ErrorAction SilentlyContinue
 ```
 
 Verified on the POC host:
@@ -57,72 +57,33 @@ codex-cli 0.152.0
 uvx 0.11.8 (0e961dd9a 2026-04-27 x86_64-pc-windows-msvc)
 ```
 
-### Install Codex CLI on Windows
+If `codex` is not recognized, install the current official Windows Codex CLI, then fully restart PowerShell before retesting.
 
-If PowerShell reports that `codex` is not recognized, install the current official Codex CLI with the OpenAI Windows installer:
+## 2. Blender side
 
-```powershell
-powershell -ExecutionPolicy ByPass -c "irm https://chatgpt.com/codex/install.ps1 | iex"
-```
+Use the **official Blender Lab MCP** add-on, not the older community `MCPBlender/blender-mcp` project.
 
-Then close and reopen PowerShell and verify:
-
-```powershell
-codex --version
-Get-Command codex
-```
-
-An alternative installation method is:
-
-```powershell
-npm install -g @openai/codex
-```
-
-For this POC prefer the standalone OpenAI Windows installer unless there is a reason to use npm.
-
-On first use, run:
-
-```powershell
-codex
-```
-
-and sign in with the ChatGPT account when prompted.
-
-If Blender is not on `PATH`, locate it for diagnostics:
-
-```powershell
-Get-ChildItem "C:\Program Files\Blender Foundation" -Filter blender.exe -Recurse -ErrorAction SilentlyContinue |
-    Select-Object -First 5 FullName
-```
-
-## 2. Install and enable the official Blender Lab MCP add-on
-
-Use the **official Blender Lab MCP** page:
-
-https://www.blender.org/lab/mcp-server/
-
-Blender 5.1 or newer is required.
-
-Install the official Blender Lab MCP add-on using the procedure on that page. With the drag-and-drop method Blender may ask you to perform the operation twice: first to add the Blender Lab repository and then to install the add-on.
-
-In Blender Preferences, verify the official MCP extension is enabled and configured with:
+In Blender Preferences, verify:
 
 ```text
+MCP
+Maintainer: Blender Lab
+Version: 1.0.0
 Host: localhost
 Port: 9876
 Auto Start: enabled
 ```
 
-Keep this endpoint local only.
+Keep the endpoint local only.
 
-PowerShell connectivity check:
+Connectivity check:
 
 ```powershell
 Test-NetConnection 127.0.0.1 -Port 9876
 Get-NetTCPConnection -LocalPort 9876 -State Listen -ErrorAction SilentlyContinue
 ```
 
-Verified on the POC host:
+Verified result:
 
 ```text
 RemoteAddress    : 127.0.0.1
@@ -130,60 +91,99 @@ RemotePort       : 9876
 TcpTestSucceeded : True
 ```
 
-A warning for IPv6 `::1` may appear when testing `localhost`; the successful IPv4 result above is the relevant check. The Codex-side configuration therefore uses explicit `127.0.0.1`.
+A warning for IPv6 `::1` can appear when testing `localhost`; the successful IPv4 result is the relevant check. The Codex-side configuration therefore uses explicit `127.0.0.1`.
 
 ## 3. Codex MCP configuration
 
-Codex supports project-scoped MCP configuration in `.codex/config.toml` for trusted projects. This repository contains that configuration.
+The project-scoped configuration is in `.codex/config.toml`.
 
-The configured server is the **official Blender Lab MCP server**, installed directly from the Blender project repository with `uvx`:
+The official Blender Lab MCP server is loaded directly from:
 
 ```text
 git+https://projects.blender.org/lab/blender_mcp.git@v1.0.0#subdirectory=mcp
 ```
 
-The explicit `@v1.0.0` pin is intentional for POC reproducibility. If the installed Blender Lab add-on requires a newer server version, update the pin only after checking the matching official release/documentation and record the working version here.
+### Important compatibility pin
 
-After cloning the repository, trust/open it in the local Codex client and restart Codex so the project-scoped MCP configuration is reloaded.
+Blender MCP 1.0.0 imports the MCP Python SDK v1 API:
 
-Verify configuration:
-
-```powershell
-codex mcp list
-codex mcp --help
+```python
+from mcp.server.fastmcp import FastMCP
 ```
 
-Inside the Codex TUI, `/mcp` should show the `blender` server and its tools.
+Without an explicit pin, current dependency resolution can install MCP Python SDK 2.x, where that API no longer exists. The observed failure was:
 
-Before diagnosing Codex integration, the official server can be started directly:
+```text
+ModuleNotFoundError: No module named 'mcp.server.fastmcp'
+```
+
+For reproducibility this POC therefore runs the official Blender MCP server with:
+
+```text
+mcp==1.27.2
+```
+
+The effective Codex server definition is equivalent to:
+
+```powershell
+uvx --with "mcp==1.27.2" `
+  --from "git+https://projects.blender.org/lab/blender_mcp.git@v1.0.0#subdirectory=mcp" `
+  blender-mcp
+```
+
+with:
+
+```text
+BLENDER_MCP_HOST=127.0.0.1
+BLENDER_MCP_PORT=9876
+```
+
+### Direct stdio diagnostic
+
+To isolate the Blender MCP server from Codex:
 
 ```powershell
 $env:BLENDER_MCP_HOST="127.0.0.1"
 $env:BLENDER_MCP_PORT="9876"
-uvx --from "git+https://projects.blender.org/lab/blender_mcp.git@v1.0.0#subdirectory=mcp" blender-mcp
+uvx --with "mcp==1.27.2" --from "git+https://projects.blender.org/lab/blender_mcp.git@v1.0.0#subdirectory=mcp" blender-mcp
 ```
 
-For a healthy stdio MCP server it is normal for this command to remain running and wait for MCP input. Stop it with `Ctrl+C` after the diagnostic.
+A healthy stdio MCP server waits for MCP input. If it is manually stopped with `Ctrl+C`, an `asyncio.exceptions.CancelledError` traceback may appear during shutdown; that does not reproduce the earlier SDK import failure.
 
-If project-scoped configuration is not being loaded, the equivalent user-level bootstrap command is:
+### Codex discovery
+
+Verify project configuration:
 
 ```powershell
-codex mcp add blender `
-  --env BLENDER_MCP_HOST=127.0.0.1 `
-  --env BLENDER_MCP_PORT=9876 `
-  -- uvx --from "git+https://projects.blender.org/lab/blender_mcp.git@v1.0.0#subdirectory=mcp" blender-mcp
+codex mcp list
 ```
 
-Do not add both user-level and project-level `blender` definitions unless you intentionally want to override one of them.
+Verified on the POC host:
+
+```text
+Name     Command  ...  Status   Auth
+blender  uvx      ...  enabled  Unsupported
+```
+
+`Auth: Unsupported` is not a failure for this local stdio MCP server; there is no OAuth flow required here. The important result is that `blender` is present and `enabled` with the expected command, arguments, and environment variables.
+
+Inside Codex, `/mcp` should show the `blender` server and its available tools once initialization succeeds.
 
 ## 4. First end-to-end smoke test
 
-Start from a normal new Blender scene with approximately:
+Start Blender and keep it open. A normal new scene should contain approximately:
 
 ```text
 Camera
 Cube
 Light
+```
+
+Start Codex from this repository:
+
+```powershell
+cd C:\git\AI-MPC-Blender-home
+codex
 ```
 
 ### Test A - read only
@@ -194,105 +194,84 @@ Prompt Codex:
 Using the Blender MCP tools, inspect the currently open Blender scene and list all objects. Do not modify anything.
 ```
 
-PASS only if Codex obtains the object list through Blender MCP from the currently open scene.
+PASS only if Codex obtains the object list through Blender MCP from the currently open live scene.
 
 ### Test B - create
-
-Prompt Codex:
 
 ```text
 Using Blender MCP, create a UV sphere named MCP_Test_Sphere at location X=3, Y=0, Z=0.
 ```
 
-PASS only if `MCP_Test_Sphere` is visibly present in the open Blender scene.
+PASS only if the sphere visibly appears in Blender.
 
 ### Test C - verify
-
-Prompt Codex:
 
 ```text
 Inspect the Blender scene and verify that MCP_Test_Sphere exists at X=3, Y=0, Z=0.
 ```
 
-PASS only if Codex reads the changed live scene through MCP and reports the correct location.
+PASS only if Codex reads the changed scene through MCP and reports the correct location.
 
 ### Test D - modify and verify
-
-Prompt Codex:
 
 ```text
 Move MCP_Test_Sphere to X=5, Y=1, Z=0 and verify its final location.
 ```
 
-PASS only if the object visibly moves in Blender **and** Codex subsequently reads back approximately `(5, 1, 0)` from the live scene.
+PASS only if the object visibly moves in Blender **and** Codex subsequently reads back approximately `(5, 1, 0)`.
 
 ## 5. Restart reproducibility test
 
 After Tests A-D pass:
 
-1. Save or discard the Blender test scene as appropriate.
-2. Fully close Codex and Blender.
-3. Start Blender 5.2 again.
-4. Verify the official MCP add-on is enabled/running.
-5. Start Codex in this repository.
-6. Run `codex mcp list` or `/mcp`.
-7. Repeat Tests A-D.
+1. Fully close Codex and Blender.
+2. Start Blender 5.2 again.
+3. Verify the MCP add-on listener is active on port 9876.
+4. Start Codex in this repository.
+5. Run `codex mcp list` or `/mcp`.
+6. Repeat Tests A-D.
 
-POC v0.1 is not complete until this restart test passes.
+POC v0.1 is not complete until the restart test passes.
 
 ## 6. Troubleshooting
-
-### `codex` is not found
-
-```powershell
-Get-Command codex -ErrorAction SilentlyContinue
-where.exe codex
-```
-
-If it is absent, install it with the official Windows installer shown in section 1. After installation, fully restart PowerShell before retesting.
 
 ### `uvx` is not found
 
 ```powershell
 Get-Command uvx -ErrorAction SilentlyContinue
 where.exe uvx
-uv --version
 uvx --version
 ```
 
-If `uv` was just installed, fully restart the terminal and Codex, then retry. Prefer the official `uv` installer rather than installing `uv` with `pip`.
+Restart the terminal after installation.
 
-### Blender MCP server cannot start in Codex
-
-First isolate the server from Codex:
+### `codex` is not found
 
 ```powershell
-$env:BLENDER_MCP_HOST="127.0.0.1"
-$env:BLENDER_MCP_PORT="9876"
-uvx --from "git+https://projects.blender.org/lab/blender_mcp.git@v1.0.0#subdirectory=mcp" blender-mcp
+Get-Command codex -ErrorAction SilentlyContinue
+where.exe codex
+codex --version
 ```
 
-If it exits with an exception, preserve the complete traceback before changing dependencies. If it remains running, stop it with `Ctrl+C` and continue with Codex MCP discovery.
+Restart PowerShell after installation or PATH changes.
 
-The first server start may need network access because `uvx` has to obtain the official MCP package from the Blender Git repository. Subsequent starts should use the uv cache.
+### Blender MCP import fails with `mcp.server.fastmcp`
 
-If startup exceeds the default Codex timeout, this repo sets `startup_timeout_sec = 120`.
+Use the compatibility pin:
 
-### Codex does not see the MCP server or tools
+```powershell
+uvx --with "mcp==1.27.2" --from "git+https://projects.blender.org/lab/blender_mcp.git@v1.0.0#subdirectory=mcp" blender-mcp
+```
 
-1. Ensure the repository is trusted so project `.codex/config.toml` is loaded.
-2. Fully restart Codex after configuration changes.
-3. Run:
+Do not remove the pin until the official Blender MCP server itself migrates to MCP SDK 2.x or publishes a compatible dependency constraint.
+
+### Codex does not see Blender MCP
 
 ```powershell
 codex mcp list
 ```
 
-4. In the Codex TUI use:
-
-```text
-/mcp
-```
+Ensure this repository is the current directory and that Codex trusts/loads the project `.codex/config.toml`. Fully restart Codex after config changes.
 
 ### Blender is not reachable
 
@@ -301,40 +280,24 @@ Test-NetConnection 127.0.0.1 -Port 9876
 Get-NetTCPConnection -LocalPort 9876 -ErrorAction SilentlyContinue
 ```
 
-If the test fails, diagnose the Blender add-on before changing Codex configuration.
+Diagnose the Blender add-on before changing the Codex configuration.
 
 ### Port 9876 is occupied
 
 ```powershell
 Get-NetTCPConnection -LocalPort 9876 -ErrorAction SilentlyContinue |
     Select-Object LocalAddress,LocalPort,State,OwningProcess
-
-Get-Process -Id <PID>
 ```
 
-Do not kill an unknown process blindly. Identify it first. Keep the MCP listener local.
-
-### MCP process exists but Blender does not answer
-
-Check in this order:
-
-1. Blender is open.
-2. The official Blender Lab MCP add-on is enabled.
-3. Port `9876` is listening locally.
-4. Codex MCP server is enabled.
-5. Retry a read-only scene inspection before any write operation.
-
-### Restart breaks the connection
-
-The Codex-side stdio MCP server and the Blender-side local TCP listener have independent lifecycles. After restarting Blender, verify the Blender add-on listener first; after restarting Codex, verify `codex mcp list` / `/mcp` again.
+Identify the owning process before changing or terminating anything.
 
 ## 7. Testing boundaries
 
 There are three different test layers:
 
 - **Unit tests**: only for Python code owned by this repository. There is currently no repository Python code, so no artificial unit-test scaffold is added.
-- **MCP integration test**: verifies that Codex starts the configured official MCP server and discovers its tools.
-- **True end-to-end test**: requires the Blender GUI, the official Blender Lab add-on, the Codex MCP client, and visible/read-back scene changes. This is not a unit test.
+- **MCP integration test**: verifies Codex loads the configured official MCP server and discovers its tools.
+- **True end-to-end test**: requires Blender GUI, the official Blender Lab add-on, Codex MCP client, and visible/read-back scene changes. This is not a unit test.
 
 ## 8. POC v0.1 definition of done
 
@@ -344,8 +307,9 @@ There are three different test layers:
 - [x] Blender MCP add-on listener is reachable locally on IPv4 port `9876`.
 - [x] Codex CLI is installed and available in PowerShell (`0.152.0`).
 - [x] `uvx` is installed and available in PowerShell (`0.11.8`).
-- [ ] Codex starts/uses the official Blender MCP server.
-- [ ] MCP server initializes successfully.
+- [x] Codex loads the project MCP definition and reports `blender` as enabled.
+- [x] The Blender MCP SDK v1/v2 compatibility failure is diagnosed and pinned reproducibly (`mcp==1.27.2`).
+- [ ] Codex initializes the Blender MCP server in a live session.
 - [ ] Codex sees Blender MCP tools.
 - [ ] Codex reads the live Blender scene.
 - [ ] Codex creates `MCP_Test_Sphere`.
@@ -355,10 +319,14 @@ There are three different test layers:
 
 ## Current stage result
 
-**Repository/bootstrap stage: PASS.**
+**Repository/bootstrap: PASS.**
 
-**Blender add-on/listener stage: PASS.** Official Blender Lab MCP 1.0.0 is enabled in Blender 5.2 with Auto Start and `127.0.0.1:9876` is reachable.
+**Blender add-on/listener: PASS.** Official Blender Lab MCP 1.0.0 is enabled in Blender 5.2 and `127.0.0.1:9876` is reachable.
 
-**Codex CLI / uvx stage: PASS.** `codex-cli 0.152.0` and `uvx 0.11.8` are available in a fresh PowerShell session.
+**Codex CLI / uvx: PASS.** `codex-cli 0.152.0` and `uvx 0.11.8` are available.
 
-**Official Blender MCP stdio server stage: PENDING.** Run the direct `uvx --from ... blender-mcp` diagnostic and record whether the process stays running or exits with an error.
+**Blender MCP dependency compatibility: PASS after pin.** The MCP SDK 2.x incompatibility is fixed by `mcp==1.27.2`.
+
+**Codex MCP configuration discovery: PASS.** `codex mcp list` reports `blender` as `enabled` with the expected configuration.
+
+**Live Codex -> Blender scene read: NEXT.**
