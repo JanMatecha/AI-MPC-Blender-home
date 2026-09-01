@@ -2,7 +2,7 @@
 
 Minimal proof of concept for controlling a live Blender 5.2 session from Codex through the official Blender Lab MCP integration.
 
-> Status: **POC v0.1 in progress**. Blender 5.2, the official Blender Lab MCP add-on 1.0.0, the local listener on `127.0.0.1:9876`, Codex CLI `0.152.0`, `uvx 0.11.8`, and Codex project-level MCP discovery are verified. The next step is the first live read-only `Codex -> MCP -> Blender` scene inspection.
+> Status: **POC v0.1 in progress**. The complete read-only path `Codex -> official Blender MCP -> live Blender` is verified. Codex successfully called `blender.get_objects_summary` and read the default live scene (`Camera`, `Cube`, `Light`) without modifying it. The next step is the first write test: create `MCP_Test_Sphere`, then read the scene back and verify its position.
 
 ## Target architecture
 
@@ -186,7 +186,7 @@ cd C:\git\AI-MPC-Blender-home
 codex
 ```
 
-### Test A - read only
+### Test A - read only — PASS
 
 Prompt Codex:
 
@@ -194,7 +194,15 @@ Prompt Codex:
 Using the Blender MCP tools, inspect the currently open Blender scene and list all objects. Do not modify anything.
 ```
 
-PASS only if Codex obtains the object list through Blender MCP from the currently open live scene.
+Verified result: Codex called `blender.get_objects_summary({})` through MCP and received `status: ok` from the live Blender scene. It reported:
+
+```text
+Camera — Camera
+Cube — Mesh (active and selected)
+Light — Light
+```
+
+No scene changes were made.
 
 ### Test B - create
 
@@ -309,9 +317,9 @@ There are three different test layers:
 - [x] `uvx` is installed and available in PowerShell (`0.11.8`).
 - [x] Codex loads the project MCP definition and reports `blender` as enabled.
 - [x] The Blender MCP SDK v1/v2 compatibility failure is diagnosed and pinned reproducibly (`mcp==1.27.2`).
-- [ ] Codex initializes the Blender MCP server in a live session.
-- [ ] Codex sees Blender MCP tools.
-- [ ] Codex reads the live Blender scene.
+- [x] Codex initializes the Blender MCP server in a live session.
+- [x] Codex sees and calls Blender MCP tools.
+- [x] Codex reads the live Blender scene.
 - [ ] Codex creates `MCP_Test_Sphere`.
 - [ ] Codex moves `MCP_Test_Sphere`.
 - [ ] Codex reads back the changed state correctly.
@@ -329,4 +337,6 @@ There are three different test layers:
 
 **Codex MCP configuration discovery: PASS.** `codex mcp list` reports `blender` as `enabled` with the expected configuration.
 
-**Live Codex -> Blender scene read: NEXT.**
+**Live Codex -> Blender scene read: PASS.** Codex called `blender.get_objects_summary` and correctly read `Camera`, `Cube`, and `Light` from the open Blender scene without modifying it.
+
+**Next: Test B — create `MCP_Test_Sphere` at `(3, 0, 0)`.**
